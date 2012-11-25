@@ -52,7 +52,7 @@ import logging
 try:
     import simplejson as json
 except ImportError:
-    import json
+    import json # pyflakes.ignore
 import time
 import signal
 import socket
