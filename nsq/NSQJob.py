@@ -19,6 +19,7 @@ class Job(Reader):
     It will get job information from the job tracker, and start a reader to do the work
     """
     def __init__(self, worker_url, **kwargs):
+        assert isinstance(worker_url, (str, unicode))
         assert worker_url.startswith("http://") or worker_url.startswith("https://")
         self.http_client = tornado.httpclient.AsyncHTTPClient()
         self.worker_url = worker_url
@@ -34,13 +35,13 @@ class Job(Reader):
     
     def finish_start_worker(self, response):
         if response.error:
-            logging.warning("[%s] lookupd error %s", response.request_uri, response.error)
+            logging.warning("[%s] lookupd error %s", response.effective_url, response.error)
             return
         
         try:
             data = json.loads(response.body)
         except json.JSONDecodeError:
-            logging.warning("[%s] failed to parse JSON from lookupd: %r", response.request_uri, response.body)
+            logging.warning("[%s] failed to parse JSON from lookupd: %r", response.effective_url, response.body)
             return
         
         if data['status_code'] != 200:
@@ -48,9 +49,10 @@ class Job(Reader):
 
         logging.info(data)
         self.job_info = data["data"]["job"]
-        self.nsqd_http_addresses = data["data"]["nsqd_"]
+        if self.job_info.get('stopped_at'):
+            raise Exception("Job already finished")
         
-        tasks = {"task":self.handle_message}
+        tasks = {"task":self.message_worker}
         topic = self.job_info["topics"][0]
         channel = "%s-%s" % (self.job_info["nsq_prefix"], self.job_info["timeframe"])
         self.reader_kwargs["nsqd_tcp_addresses"] = data["data"]["nsqd_tcp_addresses"]
@@ -58,7 +60,7 @@ class Job(Reader):
         super(Job, self).__init__(tasks, topic, channel, **self.reader_kwargs)
         # start a poll loop so we know when to stop
     
-    def handle_message(self, message):
+    def message_worker(self, message):
         raise NotImplemented
     
     
